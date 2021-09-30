@@ -1,0 +1,107 @@
+---
+title: "OBP Predictor Model"
+author: "Ernesto Herrero"
+date: "9/30/2021"
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+batting <- read.csv("batting.csv")
+
+# Data Adjustments
+
+batting$MarApr_BB. <- as.double(substr(batting$MarApr_BB., 1, nchar(batting$MarApr_BB.) - 1))/100
+batting$MarApr_K. <- as.double(substr(batting$MarApr_K., 1, nchar(batting$MarApr_K.) - 1))/100
+batting$MarApr_LD. <- as.double(substr(batting$MarApr_LD., 1, nchar(batting$MarApr_LD.) - 1))/100
+batting$MarApr_FB. <- as.double(substr(batting$MarApr_FB., 1, nchar(batting$MarApr_FB.) - 1))/100
+batting$MarApr_IFFB. <- as.double(substr(batting$MarApr_IFFB., 1, nchar(batting$MarApr_IFFB.) - 1))/100
+batting$MarApr_HR.FB <- as.double(substr(batting$MarApr_HR.FB, 1, nchar(batting$MarApr_HR.FB) - 1))/100
+batting$MarApr_O.Swing. <- as.double(substr(batting$MarApr_O.Swing., 1, nchar(batting$MarApr_O.Swing.) - 1))/100
+batting$MarApr_Z.Swing. <- as.double(substr(batting$MarApr_Z.Swing., 1, nchar(batting$MarApr_Z.Swing.) - 1))/100
+batting$MarApr_Swing. <- as.double(substr(batting$MarApr_Swing., 1, nchar(batting$MarApr_Swing.) - 1))/100
+batting$MarApr_O.Contact. <- as.double(substr(batting$MarApr_O.Contact., 1, nchar(batting$MarApr_O.Contact.) - 1))/100
+batting$MarApr_Z.Contact. <- as.double(substr(batting$MarApr_Z.Contact., 1, nchar(batting$MarApr_Z.Contact.) - 1))/100
+batting$MarApr_Contact. <- as.double(substr(batting$MarApr_Contact., 1, nchar(batting$MarApr_Contact.) - 1))/100
+
+#Create training and test data
+# We take into account the rule of thumb: The model should be made with at least 10-20 variables per parameter
+# Therefore, for tis models to work , our data set must have at least 100 parameters
+
+training_size <- floor(nrow(batting)*.6)
+training_id <- sample(1:nrow(batting), training_size)
+batting_train <- batting[training_id,]
+batting_test <- batting[-training_id,]
+```
+
+```{r draft_models_construction, include=FALSE}
+
+#1st model
+MA_OBP_mod1 <- lm(MarApr_OBP ~ MarApr_H + MarApr_O.Swing.  , data = batting_train)
+summary(MA_OBP_mod1)
+
+#2nd Model
+MA_OBP_mod2 <- lm(MarApr_OBP ~ MarApr_H + MarApr_BB., data = batting_train)
+summary(MA_OBP_mod2)
+
+#3rd Model
+MA_OBP_mod3 <- lm(MarApr_OBP ~ MarApr_H +  MarApr_Z.Swing. + MarApr_O.Swing. + MarApr_O.Contact. + MarApr_LD., data = batting_train)
+summary(MA_OBP_mod3)
+
+```
+
+```{r model_testing}
+mod1_predict <- data.frame(predict.lm(MA_OBP_mod1, batting_test, interval = "confidence", level = .95))
+mod2_predict <- data.frame(predict.lm(MA_OBP_mod2, batting_test, interval = "confidence", level = .95))
+mod3_predict <- data.frame(predict.lm(MA_OBP_mod3, batting_test, interval = "confidence", level = .95))
+
+
+correct_OBP <- c(0, 0, 0)
+for(i in 1:nrow(mod1_predict))
+{
+  if(mod1_predict$lwr[i] < batting_test$FullSeason_OBP[i] & mod1_predict$upr[i] > batting_test$FullSeason_OBP[i])
+  {
+    correct_OBP[1] <- correct_OBP[1] + 1
+  }
+  if(mod2_predict$lwr[i] < batting_test$FullSeason_OBP[i] & mod2_predict$upr[i] > batting_test$FullSeason_OBP[i])
+  {
+    correct_OBP[2] <- correct_OBP[2] + 1
+  }
+  if(mod3_predict$lwr[i] < batting_test$FullSeason_OBP[i] & mod3_predict$upr[i] > batting_test$FullSeason_OBP[i])
+  {
+    correct_OBP[3] <- correct_OBP[3] + 1
+  }
+} 
+correct_OBP <- correct_OBP/nrow(mod1_predict)
+cat("Model 1 Accuracy:", correct_OBP[1]*100, "%\nModel 2 Accuracy:" , correct_OBP[2]*100, "%\nModel 3 Accuracy:", correct_OBP[3]*100,"%")
+
+
+# It seems that the model with the highest R^2 was the least correct one. That happens since using the OBP of a player to predict final OBP is not the way to do it. We must use projection statistics such as O-Swing % to project OBP.
+```
+
+```{r analysis}
+
+numPA_In = 0
+numPA_Out = 0
+Num_player_In = 0
+Num_player_Out = 0
+for(i in 1:nrow(mod3_predict))
+{
+  if(abs(batting_test$Difference[i]) >= 0.03 )
+  {
+       Num_player_Out <- Num_player_Out + 1
+       numPA_Out <- numPA_Out + batting_test$MarApr_PA[i]
+  }else
+  {
+       Num_player_In <- Num_player_In + 1
+       numPA_In <- numPA_In + batting_test$MarApr_PA[i]
+  }
+}
+AvgPA_Players_A <- numPA_Out/Num_player_Out
+AvgPA_Players_B <- numPA_In/Num_player_In
+AvgPA_Players_A
+AvgPA_Players_B
+
+```
+
+
